@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+linedify
+python-dotenv
+line-bot-sdk
