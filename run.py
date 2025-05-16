@@ -13,9 +13,9 @@ line_dify = LineDify(
     line_channel_access_token=os.getenv("LINE_CHANNEL_ACCESS_TOKEN"),
     line_channel_secret=os.getenv("LINE_CHANNEL_SECRET"),
     dify_api_key=os.getenv("DIFY_API_KEY"),
-    dify_base_url=os.getenv("DIFY_BASE_URL"),
-    dify_user=os.getenv("DIFY_USER"),
-    dify_type=DifyType[os.getenv("DIFY_TYPE", "Chatbot")],
+    dify_base_url="https://api.dify.ai/v1",
+    dify_user="abc-123",
+    dify_type=DifyType.Chatbot,
     verbose=True
 )
 
