@@ -4,6 +4,8 @@ from linedify import LineDify, DifyType
 from linebot.v3.messaging import TextMessage
 import os
 from dotenv import load_dotenv
+import httpx
+import json
 
 # 環境変数を読み込む
 load_dotenv()
@@ -19,6 +21,18 @@ line_dify = LineDify(
     verbose=True
 )
 
+# 既読を付けるヘルパー
+LINE_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
+async def mark_as_read(user_id: str):
+    url = "https://api.line.me/v2/bot/message/markAsRead"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {LINE_ACCESS_TOKEN}"
+    }
+    payload = {"chat": {"userId": user_id}}
+    async with httpx.AsyncClient() as client:
+        await client.post(url, json=payload, headers=headers)
+
 # ② アプリのライフサイクル定義
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -30,12 +44,19 @@ app = FastAPI(lifespan=lifespan)
 # ③ Webhook エンドポイント定義
 @app.post("/linebot")
 async def handle_request(request: Request, background_tasks: BackgroundTasks):
-    request_body=(await request.body()).decode("utf-8")
-    print(request_body)
+    # リクエストボディ読み込み
+    raw_body = (await request.body()).decode("utf-8")
+    print(raw_body)
+    # JSON解析
+    data = json.loads(raw_body)
+    # 既読マークをバックグラウンドで実行
+    user_id = data.get("events", [])[0].get("source", {}).get("userId")
+    if user_id:
+        background_tasks.add_task(mark_as_read, user_id)
+    # Linedifyの処理をキック
     background_tasks.add_task(
         line_dify.process_request,
-        request_body,
+        raw_body,
         signature=request.headers.get("X-Line-Signature", "")
     )
     return "ok"
-

@@ -1,5 +1,6 @@
 fastapi
 uvicorn
-linedify
 python-dotenv
+httpx
 line-bot-sdk
+linedify
