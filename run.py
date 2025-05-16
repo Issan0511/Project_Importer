@@ -21,17 +21,17 @@ line_dify = LineDify(
     verbose=True
 )
 
-# 既読を付けるヘルパー
-LINE_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
-async def mark_as_read(user_id: str):
-    url = "https://api.line.me/v2/bot/message/markAsRead"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {LINE_ACCESS_TOKEN}"
-    }
-    payload = {"chat": {"userId": user_id}}
-    async with httpx.AsyncClient() as client:
-        await client.post(url, json=payload, headers=headers)
+# LINEの既読APIは申請が必要なため、コメントアウト
+# LINE_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
+# async def mark_as_read(user_id: str):
+#     url = "https://api.line.me/v2/bot/message/markAsRead"
+#     headers = {
+#         "Content-Type": "application/json",
+#         "Authorization": f"Bearer {LINE_ACCESS_TOKEN}"
+#     }
+#     payload = {"chat": {"userId": user_id}}
+#     async with httpx.AsyncClient() as client:
+#         await client.post(url, json=payload, headers=headers)
 
 # ② アプリのライフサイクル定義
 @asynccontextmanager
@@ -49,10 +49,9 @@ async def handle_request(request: Request, background_tasks: BackgroundTasks):
     print(raw_body)
     # JSON解析
     data = json.loads(raw_body)
-    # 既読マークをバックグラウンドで実行
-    user_id = data.get("events", [])[0].get("source", {}).get("userId")
-    if user_id:
-        background_tasks.add_task(mark_as_read, user_id)
+    # 既読マークをバックグラウンドで実行（API申請が必要なため一時停止）
+    # if user_id:
+    #     background_tasks.add_task(mark_as_read, user_id)
     # Linedifyの処理をキック
     background_tasks.add_task(
         line_dify.process_request,
