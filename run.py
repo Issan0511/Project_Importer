@@ -51,20 +51,26 @@ async def handle_request(request: Request, background_tasks: BackgroundTasks):
     signature = request.headers.get("X-Line-Signature", "")
 
     # linedify の処理をバックグラウンドで実行
-    def process_and_forward():
-        # Step A: Dify へ問い合わせ & LINE へ返信
-        dify_response = line_dify.process_request(request_body=raw_body, signature=signature)
-
-        # Step B: Dify から JSON で構造化出力がある場合のみ GAS へ転送
+    async def process_and_forward():
         try:
-            data = json.loads(dify_response) if isinstance(dify_response, str) else dify_response
-            required_keys = {"overview", "location", "startDate", "vehicle", "headCount", "operation", "hours", "amount", "cases", "training"}
-            if required_keys.issubset(data.keys()):
-                gas_result = post_to_gas(data)
-                # オプション: GAS の結果を LINE へも送る
-                line_dify.push_message(f"GAS に書き込みました:\n{gas_result}")
+            # Step A: Dify へ問い合わせ & LINE へ返信
+            dify_response = await line_dify.process_request(request_body=raw_body, signature=signature)
+
+            # Step B: Dify から JSON で構造化出力がある場合のみ GAS へ転送
+            # dify_responseがstrの場合のみJSONパースを試行
+            if isinstance(dify_response, str):
+                try:
+                    data = json.loads(dify_response)
+                    required_keys = {"overview", "location", "startDate", "vehicle", "headCount", "operation", "hours", "amount", "cases", "training"}
+                    if isinstance(data, dict) and required_keys.issubset(data.keys()):
+                        gas_result = post_to_gas(data)
+                        print(f"GAS に書き込みました: {gas_result}")
+                except json.JSONDecodeError:
+                    print("Dify response is not valid JSON")
+                except Exception as e:
+                    print(f"GAS連携処理中にエラー: {e}")
         except Exception as e:
-            line_dify.push_message(f"GAS 連携エラー: {e}")
+            print(f"処理中にエラーが発生しました: {e}")
 
     background_tasks.add_task(process_and_forward)
     return "ok"
