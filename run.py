@@ -3,27 +3,31 @@ from fastapi import FastAPI, Request, BackgroundTasks
 from linedify import LineDify
 import requests
 import json
+import os
+from dotenv import load_dotenv
+
+# 環境変数を読み込む
+load_dotenv()
 
 # ① LineDify インスタンスを初期化
 line_dify = LineDify(
-    line_channel_access_token="znnvM7aQHXQRVqejCRWWOl0gU2AVmSMFumHimdGWr4U4Ld+ofzw/+lNJS7iHjqsC7TfrBBcndkN3n9+KPTzLpj55Z0nXZP2FO2kKWEjXscl1SL6DLiRBgiozbVrzbDwd145mxYl6ywrcEttznq2ZwgdB04t89/1O/w1cDnyilFU=",
-    line_channel_secret="6eb7d33e1e00e1c83a95c9033b96f514",
-    dify_api_key="app-6AmfqBtiwIysD2kjRwVY2hhD",
-    dify_base_url="https://api.dify.ai/v1/chat-messages",
-    dify_user="abc-123"
+    line_channel_access_token=os.getenv("LINE_CHANNEL_ACCESS_TOKEN"),
+    line_channel_secret=os.getenv("LINE_CHANNEL_SECRET"),
+    dify_api_key=os.getenv("DIFY_API_KEY"),
+    dify_base_url=os.getenv("DIFY_BASE_URL", "https://api.dify.ai/v1/chat-messages"),
+    dify_user=os.getenv("DIFY_USER", "abc-123")
 )
 
 # ② GAS へ POST するユーティリティ関数
 def post_to_gas(payload: dict):
     """指定の payload(JSON) を GAS WebApp に POST してレスポンスを文字列で返す"""
-    url = (
-        "https://script.google.com/macros/s/"
-        "AKfycbyEHqJCrHfjlseaeLmfl09WVtwWn2rboihb7l0CpIRar_YnrS9eLBeDMjaTc1OyxWqW/exec"
-    )
-
+    gas_url = os.getenv("GAS_WEBHOOK_URL")
+    if not gas_url:
+        return "GAS_WEBHOOK_URL environment variable is not set"
+    
     headers = {"Content-Type": "application/json; charset=utf-8"}
     try:
-        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        res = requests.post(gas_url, json=payload, headers=headers, timeout=10)
         return f"GAS status={res.status_code}, body={res.text}"
     except Exception as e:
         return f"GAS request failed: {e}"

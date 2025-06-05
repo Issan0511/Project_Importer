@@ -6,8 +6,12 @@ GAS ウェブアプリ（/exec）へ POST するだけの簡易テスト用で�
 
 import requests
 import pprint
+import os
+from dotenv import load_dotenv
 
-GAS_URL = "https://script.google.com/macros/s/AKfycbwtKz__23MLJMuo1-V1scLEyA7JOqcqk_vVpTqj_KLJFx7mcq--Xb8_mFANUQ3dy3gl/exec"
+load_dotenv()
+
+GAS_URL = os.getenv("GAS_WEBHOOK_URL", "your_gas_webhook_url_here")
 
 payload = {
     "overview":  "ドラッグストア日用品配送",
