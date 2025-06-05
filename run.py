@@ -1,10 +1,12 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, BackgroundTasks
-from linedify import LineDify
 import requests
 import json
 import os
 from dotenv import load_dotenv
+from linebot.v3.messaging import AsyncApiClient, AsyncMessagingApi, Configuration, TextMessage, ReplyMessageRequest
+from linebot.v3.webhooks import WebhookParser
+from linebot.v3.exceptions import InvalidSignatureError
 
 # 環境変数を読み込む
 load_dotenv()
@@ -14,14 +16,10 @@ print(f"DIFY_API_KEY: {os.getenv('DIFY_API_KEY')}")
 print(f"DIFY_BASE_URL: {os.getenv('DIFY_BASE_URL')}")
 print(f"DIFY_USER: {os.getenv('DIFY_USER')}")
 
-# ① LineDify インスタンスを初期化
-line_dify = LineDify(
-    line_channel_access_token=os.getenv("LINE_CHANNEL_ACCESS_TOKEN"),
-    line_channel_secret=os.getenv("LINE_CHANNEL_SECRET"),
-    dify_api_key=os.getenv("DIFY_API_KEY"),
-    dify_base_url=os.getenv("DIFY_BASE_URL", "https://api.dify.ai/v1"),
-    dify_user=os.getenv("DIFY_USER", "abc-123")
-)
+# LINE API クライアントを初期化
+configuration = Configuration(access_token=os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
+async_api_client = AsyncApiClient(configuration)
+line_bot_api = AsyncMessagingApi(async_api_client)
 
 # ② GAS へ POST するユーティリティ関数
 def post_to_gas(payload: dict):
@@ -41,7 +39,7 @@ def post_to_gas(payload: dict):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     yield
-    await line_dify.shutdown()
+    await async_api_client.close()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -49,14 +47,14 @@ app = FastAPI(lifespan=lifespan)
 async def send_line_message(message: str, user_id: str = None):
     """LINEにメッセージを送信する"""
     try:
-        if hasattr(line_dify, 'line_api') and user_id:
+        if user_id:
             # push messageを使用してメッセージを送信
-            from linebot.v3.messaging import TextMessage, PushMessageRequest
+            from linebot.v3.messaging import PushMessageRequest
             push_message_request = PushMessageRequest(
                 to=user_id,
                 messages=[TextMessage(text=message)]
             )
-            await line_dify.line_api.push_message(push_message_request)
+            await line_bot_api.push_message(push_message_request)
             print(f"✅ LINEメッセージ送信完了: {message[:50]}...", flush=True)
         else:
             print(f"⚠️ LINEメッセージ送信スキップ (user_id={user_id}): {message[:50]}...", flush=True)
@@ -93,31 +91,28 @@ async def handle_request(request: Request, background_tasks: BackgroundTasks):
             except Exception as e:
                 print(f"user_id抽出エラー: {e}", flush=True)
             
-            # Step A: Dify へ問い合わせ & LINE へ返信
+            # Step A: 直接Dify APIを呼び出してGAS転送用のデータを取得
             print(f"=== Dify への問い合わせ開始 ===", flush=True)
             
-            # LineDifyライブラリ経由での処理
-            dify_response = await line_dify.process_request(request_body=raw_body, signature=signature)
-            print(f"=== line_dify.process_request 完了 ===", flush=True)
-            
-            # 追加: 直接Dify APIを呼び出して生の応答も確認
+            # LINEメッセージからテキストを抽出
+            message_text = None
+            reply_token = None
             try:
-                print(f"=== 直接Dify API呼び出し開始 ===", flush=True)
-                
-                # LINEメッセージからテキストを抽出
-                message_text = None
+                request_data = json.loads(raw_body)
+                if 'events' in request_data and len(request_data['events']) > 0:
+                    event = request_data['events'][0]
+                    if event.get('type') == 'message' and event.get('message', {}).get('type') == 'text':
+                        message_text = event['message']['text']
+                        reply_token = event.get('replyToken')
+                        print(f"抽出されたメッセージ: {message_text}", flush=True)
+                        print(f"Reply Token: {reply_token}", flush=True)
+            except Exception as e:
+                print(f"メッセージ抽出エラー: {e}", flush=True)
+            
+            dify_answer = None
+            if message_text:
                 try:
-                    request_data = json.loads(raw_body)
-                    if 'events' in request_data and len(request_data['events']) > 0:
-                        event = request_data['events'][0]
-                        if event.get('type') == 'message' and event.get('message', {}).get('type') == 'text':
-                            message_text = event['message']['text']
-                            print(f"抽出されたメッセージ: {message_text}", flush=True)
-                except Exception as e:
-                    print(f"メッセージ抽出エラー: {e}", flush=True)
-                
-                if message_text:
-                    import requests
+                    print(f"=== 直接Dify API呼び出し開始 ===", flush=True)
                     
                     api_key = os.getenv('DIFY_API_KEY')
                     base_url = os.getenv('DIFY_BASE_URL', 'https://api.dify.ai/v1')
@@ -138,7 +133,6 @@ async def handle_request(request: Request, background_tasks: BackgroundTasks):
                     }
                     
                     print(f"直接API呼び出し先: {endpoint}", flush=True)
-                    print(f"直接API payload: {json.dumps(payload, ensure_ascii=False)}", flush=True)
                     
                     direct_response = requests.post(
                         endpoint,
@@ -148,82 +142,48 @@ async def handle_request(request: Request, background_tasks: BackgroundTasks):
                     )
                     
                     print(f"直接APIステータス: {direct_response.status_code}", flush=True)
-                    print(f"直接APIヘッダー: {dict(direct_response.headers)}", flush=True)
-                    print(f"直接API生レスポンス: {repr(direct_response.text)}", flush=True)
-                    print(f"直接API応答（表示用）: {direct_response.text}", flush=True)
                     
+                    if direct_response.status_code == 200:
+                        response_data = direct_response.json()
+                        dify_answer = response_data.get('answer', '')
+                        print(f"Dify応答取得成功: {dify_answer}", flush=True)
+                        
+                        # LINEにDifyの応答を返信
+                        if reply_token and dify_answer:
+                            reply_request = ReplyMessageRequest(
+                                replyToken=reply_token,
+                                messages=[TextMessage(text=dify_answer)]
+                            )
+                            await line_bot_api.reply_message(reply_request)
+                            print(f"✅ LINEにDify応答を返信完了", flush=True)
+                    else:
+                        print(f"❌ Dify API エラー: {direct_response.status_code} - {direct_response.text}", flush=True)
+                        
+                except Exception as e:
+                    print(f"直接Dify API呼び出しエラー: {e}", flush=True)
+                    import traceback
+                    traceback.print_exc()
+            
+            # 署名検証
+            try:
+                print(f"=== LINE署名検証開始 ===", flush=True)
+                parser = WebhookParser(os.getenv("LINE_CHANNEL_SECRET"))
+                events = parser.parse(raw_body, signature)
+                print(f"✅ 署名検証成功: {len(events)}個のイベント", flush=True)
+            except InvalidSignatureError:
+                print(f"❌ 署名検証失敗", flush=True)
+                return
             except Exception as e:
-                print(f"直接Dify API呼び出しエラー: {e}", flush=True)
-                import traceback
-                traceback.print_exc()
+                print(f"署名検証エラー: {e}", flush=True)
             
-            print(f"=== Dify 応答詳細分析 ===", flush=True)
-            print(f"応答タイプ: {type(dify_response)}", flush=True)
-            print(f"応答がNoneか: {dify_response is None}", flush=True)
-            print(f"応答の真偽値: {bool(dify_response)}", flush=True)
-            
-            # 生の応答を詳細にログ出力
-            print(f"=== 生のDify応答（repr） ===", flush=True)
-            print(repr(dify_response), flush=True)
-            print(f"=== 生のDify応答（str） ===", flush=True)
-            print(str(dify_response), flush=True)
-            
-            # 文字列の場合の詳細分析
-            if isinstance(dify_response, str):
-                print(f"=== 文字列応答の詳細分析 ===", flush=True)
-                print(f"文字列長: {len(dify_response)}", flush=True)
-                print(f"空文字列か: {dify_response == ''}", flush=True)
-                print(f"strip後の長さ: {len(dify_response.strip())}", flush=True)
-                print(f"最初の200文字（生）: {repr(dify_response[:200])}", flush=True)
-                print(f"最初の200文字（表示用）: {dify_response[:200]}", flush=True)
-                print(f"最後の200文字（生）: {repr(dify_response[-200:])}", flush=True)
-                print(f"最後の200文字（表示用）: {dify_response[-200:]}", flush=True)
-                
-                # 改行文字の分析
-                print(f"改行文字数: {dify_response.count(chr(10))}", flush=True)
-                print(f"タブ文字数: {dify_response.count(chr(9))}", flush=True)
-                print(f"スペース文字数: {dify_response.count(' ')}", flush=True)
-                
-                # 全体の内容をログに出力（大きすぎる場合は分割）
-                if len(dify_response) <= 2000:
-                    print(f"=== 全Dify応答内容 ===", flush=True)
-                    print(dify_response, flush=True)
-                else:
-                    print(f"=== Dify応答内容（分割出力） ===", flush=True)
-                    for i in range(0, len(dify_response), 1000):
-                        chunk = dify_response[i:i+1000]
-                        print(f"--- チャンク {i//1000 + 1} ---", flush=True)
-                        print(chunk, flush=True)
-            
-            # Difyの応答をLINEにも送信（LineDifyが自動送信する以外に詳細情報として）
-            if user_id and dify_response:
-                if isinstance(dify_response, str) and len(dify_response.strip()) > 0:
-                    await send_line_message(f"🤖 Dify詳細応答:\n{str(dify_response)[:500]}", user_id)
-                elif dify_response is not None:
-                    await send_line_message(f"🤖 Dify応答タイプ: {type(dify_response)}\n内容: {str(dify_response)[:500]}", user_id)
-            
-            # 応答がNoneまたは空の場合の詳細ログ
-            if dify_response is None:
-                print("⚠️ Dify応答がNoneです", flush=True)
-                if user_id:
-                    await send_line_message("⚠️ Difyから応答がありませんでした", user_id)
-            elif dify_response == "":
-                print("⚠️ Dify応答が空文字列です", flush=True)
-                if user_id:
-                    await send_line_message("⚠️ Difyから空の応答が返されました", user_id)
-            elif isinstance(dify_response, str) and len(dify_response.strip()) == 0:
-                print("⚠️ Dify応答が空白文字のみです", flush=True)
-                if user_id:
-                    await send_line_message("⚠️ Difyから空白のみの応答が返されました", user_id)
-
             # Step B: Dify から JSON で構造化出力がある場合のみ GAS へ転送
             print(f"=== JSON解析開始 ===", flush=True)
-            if isinstance(dify_response, str):
-                print(f"文字列応答の長さ: {len(dify_response)}", flush=True)
-                print(f"文字列応答の最初の100文字: {dify_response[:100]}", flush=True)
+            if dify_answer and isinstance(dify_answer, str):
+                print(f"Dify応答の長さ: {len(dify_answer)}", flush=True)
+                print(f"Dify応答の最初の100文字: {dify_answer[:100]}", flush=True)
                 
                 try:
-                    data = json.loads(dify_response)
+                    data = json.loads(dify_answer)
                     print(f"JSON解析成功: {type(data)}", flush=True)
                     print(f"解析されたデータ: {json.dumps(data, ensure_ascii=False, indent=2)}", flush=True)
                     
@@ -256,9 +216,9 @@ async def handle_request(request: Request, background_tasks: BackgroundTasks):
                         
                 except json.JSONDecodeError as e:
                     print(f"❌ JSON解析エラー: {e}", flush=True)
-                    print(f"解析対象文字列: {repr(dify_response[:200])}", flush=True)
+                    print(f"解析対象文字列: {repr(dify_answer[:200])}", flush=True)
                     if user_id:
-                        await send_line_message(f"⚠️ Dify応答のJSON解析に失敗しました。\n応答: {str(dify_response)[:200]}...", user_id)
+                        await send_line_message(f"⚠️ Dify応答のJSON解析に失敗しました。\n応答: {str(dify_answer)[:200]}...", user_id)
                 except Exception as e:
                     print(f"❌ GAS連携処理中にエラー: {e}", flush=True)
                     if user_id:
@@ -266,9 +226,9 @@ async def handle_request(request: Request, background_tasks: BackgroundTasks):
                     import traceback
                     traceback.print_exc()
             else:
-                print(f"❌ Dify応答が文字列ではありません: {type(dify_response)}", flush=True)
+                print(f"❌ Dify応答が取得できませんでした", flush=True)
                 if user_id:
-                    await send_line_message(f"⚠️ Dify応答が予期しない形式です: {type(dify_response)}", user_id)
+                    await send_line_message("❌ Difyからの応答取得に失敗しました", user_id)
                 
             print(f"=== 処理完了 ===", flush=True)
             

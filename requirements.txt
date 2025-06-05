@@ -3,5 +3,4 @@ uvicorn
 python-dotenv
 httpx
 line-bot-sdk
-linedify
 requests
