@@ -58,72 +58,73 @@ async def handle_request(request: Request, background_tasks: BackgroundTasks):
     # linedify の処理をバックグラウンドで実行
     async def process_and_forward():
         try:
-            print(f"=== 処理開始 ===")
-            print(f"Request body 長さ: {len(raw_body)}")
-            print(f"Request body 内容: {raw_body[:200]}...")  # 最初の200文字のみ表示
-            print(f"X-Line-Signature: {signature}")
+            print(f"=== 処理開始 ===", flush=True)
+            print(f"Request body 長さ: {len(raw_body)}", flush=True)
+            print(f"Request body 内容: {raw_body[:200]}...", flush=True)  # 最初の200文字のみ表示
+            print(f"X-Line-Signature: {signature}", flush=True)
             
             # Step A: Dify へ問い合わせ & LINE へ返信
-            print(f"=== Dify への問い合わせ開始 ===")
+            print(f"=== Dify への問い合わせ開始 ===", flush=True)
             dify_response = await line_dify.process_request(request_body=raw_body, signature=signature)
+            print(f"=== line_dify.process_request 完了 ===", flush=True)
             
-            print(f"=== Dify 応答詳細 ===")
-            print(f"応答タイプ: {type(dify_response)}")
-            print(f"応答内容 (生): {repr(dify_response)}")
-            print(f"応答内容 (str): {str(dify_response)}")
+            print(f"=== Dify 応答詳細 ===", flush=True)
+            print(f"応答タイプ: {type(dify_response)}", flush=True)
+            print(f"応答内容 (生): {repr(dify_response)}", flush=True)
+            print(f"応答内容 (str): {str(dify_response)}", flush=True)
             
             # 応答がNoneまたは空の場合の詳細ログ
             if dify_response is None:
-                print("⚠️ Dify応答がNoneです")
+                print("⚠️ Dify応答がNoneです", flush=True)
             elif dify_response == "":
-                print("⚠️ Dify応答が空文字列です")
+                print("⚠️ Dify応答が空文字列です", flush=True)
             elif isinstance(dify_response, str) and len(dify_response.strip()) == 0:
-                print("⚠️ Dify応答が空白文字のみです")
+                print("⚠️ Dify応答が空白文字のみです", flush=True)
 
             # Step B: Dify から JSON で構造化出力がある場合のみ GAS へ転送
-            print(f"=== JSON解析開始 ===")
+            print(f"=== JSON解析開始 ===", flush=True)
             if isinstance(dify_response, str):
-                print(f"文字列応答の長さ: {len(dify_response)}")
-                print(f"文字列応答の最初の100文字: {dify_response[:100]}")
+                print(f"文字列応答の長さ: {len(dify_response)}", flush=True)
+                print(f"文字列応答の最初の100文字: {dify_response[:100]}", flush=True)
                 
                 try:
                     data = json.loads(dify_response)
-                    print(f"JSON解析成功: {type(data)}")
-                    print(f"解析されたデータ: {json.dumps(data, ensure_ascii=False, indent=2)}")
+                    print(f"JSON解析成功: {type(data)}", flush=True)
+                    print(f"解析されたデータ: {json.dumps(data, ensure_ascii=False, indent=2)}", flush=True)
                     
                     required_keys = {"overview", "location", "startDate", "vehicle", "headCount", "operation", "hours", "amount", "cases", "training"}
                     
                     if isinstance(data, dict):
-                        print(f"データのキー: {list(data.keys())}")
+                        print(f"データのキー: {list(data.keys())}", flush=True)
                         missing_keys = required_keys - set(data.keys())
                         if missing_keys:
-                            print(f"不足しているキー: {missing_keys}")
+                            print(f"不足しているキー: {missing_keys}", flush=True)
                         else:
-                            print("全ての必要なキーが揃っています")
+                            print("全ての必要なキーが揃っています", flush=True)
                         
                         if required_keys.issubset(data.keys()):
-                            print(f"=== GAS転送開始 ===")
+                            print(f"=== GAS転送開始 ===", flush=True)
                             gas_result = post_to_gas(data)
-                            print(f"✅ GAS に書き込みました: {gas_result}")
+                            print(f"✅ GAS に書き込みました: {gas_result}", flush=True)
                         else:
-                            print(f"❌ 必要なキーが不足しています")
+                            print(f"❌ 必要なキーが不足しています", flush=True)
                     else:
-                        print(f"❌ データが辞書型ではありません: {type(data)}")
+                        print(f"❌ データが辞書型ではありません: {type(data)}", flush=True)
                         
                 except json.JSONDecodeError as e:
-                    print(f"❌ JSON解析エラー: {e}")
-                    print(f"解析対象文字列: {repr(dify_response[:200])}")
+                    print(f"❌ JSON解析エラー: {e}", flush=True)
+                    print(f"解析対象文字列: {repr(dify_response[:200])}", flush=True)
                 except Exception as e:
-                    print(f"❌ GAS連携処理中にエラー: {e}")
+                    print(f"❌ GAS連携処理中にエラー: {e}", flush=True)
                     import traceback
                     traceback.print_exc()
             else:
-                print(f"❌ Dify応答が文字列ではありません: {type(dify_response)}")
+                print(f"❌ Dify応答が文字列ではありません: {type(dify_response)}", flush=True)
                 
-            print(f"=== 処理完了 ===")
+            print(f"=== 処理完了 ===", flush=True)
             
         except Exception as e:
-            print(f"❌ 処理中にエラーが発生しました: {e}")
+            print(f"❌ 処理中にエラーが発生しました: {e}", flush=True)
             import traceback
             traceback.print_exc()
 
