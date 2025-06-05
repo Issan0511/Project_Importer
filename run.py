@@ -9,6 +9,11 @@ from dotenv import load_dotenv
 # 環境変数を読み込む
 load_dotenv()
 
+# デバッグ用: 環境変数の確認
+print(f"DIFY_API_KEY: {os.getenv('DIFY_API_KEY')}")
+print(f"DIFY_BASE_URL: {os.getenv('DIFY_BASE_URL')}")
+print(f"DIFY_USER: {os.getenv('DIFY_USER')}")
+
 # ① LineDify インスタンスを初期化
 line_dify = LineDify(
     line_channel_access_token=os.getenv("LINE_CHANNEL_ACCESS_TOKEN"),
@@ -53,8 +58,13 @@ async def handle_request(request: Request, background_tasks: BackgroundTasks):
     # linedify の処理をバックグラウンドで実行
     async def process_and_forward():
         try:
+            print(f"処理開始: request_body の長さ = {len(raw_body)}")
+            
             # Step A: Dify へ問い合わせ & LINE へ返信
             dify_response = await line_dify.process_request(request_body=raw_body, signature=signature)
+            
+            print(f"Dify応答タイプ: {type(dify_response)}")
+            print(f"Dify応答内容: {dify_response}")
 
             # Step B: Dify から JSON で構造化出力がある場合のみ GAS へ転送
             # dify_responseがstrの場合のみJSONパースを試行
@@ -65,12 +75,18 @@ async def handle_request(request: Request, background_tasks: BackgroundTasks):
                     if isinstance(data, dict) and required_keys.issubset(data.keys()):
                         gas_result = post_to_gas(data)
                         print(f"GAS に書き込みました: {gas_result}")
+                    else:
+                        print(f"必要なキーが不足しています。データ: {data}")
                 except json.JSONDecodeError:
                     print("Dify response is not valid JSON")
                 except Exception as e:
                     print(f"GAS連携処理中にエラー: {e}")
+            else:
+                print(f"Dify response is not string: {type(dify_response)}")
         except Exception as e:
             print(f"処理中にエラーが発生しました: {e}")
+            import traceback
+            traceback.print_exc()
 
     background_tasks.add_task(process_and_forward)
     return "ok"
