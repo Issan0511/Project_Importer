@@ -58,33 +58,72 @@ async def handle_request(request: Request, background_tasks: BackgroundTasks):
     # linedify の処理をバックグラウンドで実行
     async def process_and_forward():
         try:
-            print(f"処理開始: request_body の長さ = {len(raw_body)}")
+            print(f"=== 処理開始 ===")
+            print(f"Request body 長さ: {len(raw_body)}")
+            print(f"Request body 内容: {raw_body[:200]}...")  # 最初の200文字のみ表示
+            print(f"X-Line-Signature: {signature}")
             
             # Step A: Dify へ問い合わせ & LINE へ返信
+            print(f"=== Dify への問い合わせ開始 ===")
             dify_response = await line_dify.process_request(request_body=raw_body, signature=signature)
             
-            print(f"Dify応答タイプ: {type(dify_response)}")
-            print(f"Dify応答内容: {dify_response}")
+            print(f"=== Dify 応答詳細 ===")
+            print(f"応答タイプ: {type(dify_response)}")
+            print(f"応答内容 (生): {repr(dify_response)}")
+            print(f"応答内容 (str): {str(dify_response)}")
+            
+            # 応答がNoneまたは空の場合の詳細ログ
+            if dify_response is None:
+                print("⚠️ Dify応答がNoneです")
+            elif dify_response == "":
+                print("⚠️ Dify応答が空文字列です")
+            elif isinstance(dify_response, str) and len(dify_response.strip()) == 0:
+                print("⚠️ Dify応答が空白文字のみです")
 
             # Step B: Dify から JSON で構造化出力がある場合のみ GAS へ転送
-            # dify_responseがstrの場合のみJSONパースを試行
+            print(f"=== JSON解析開始 ===")
             if isinstance(dify_response, str):
+                print(f"文字列応答の長さ: {len(dify_response)}")
+                print(f"文字列応答の最初の100文字: {dify_response[:100]}")
+                
                 try:
                     data = json.loads(dify_response)
+                    print(f"JSON解析成功: {type(data)}")
+                    print(f"解析されたデータ: {json.dumps(data, ensure_ascii=False, indent=2)}")
+                    
                     required_keys = {"overview", "location", "startDate", "vehicle", "headCount", "operation", "hours", "amount", "cases", "training"}
-                    if isinstance(data, dict) and required_keys.issubset(data.keys()):
-                        gas_result = post_to_gas(data)
-                        print(f"GAS に書き込みました: {gas_result}")
+                    
+                    if isinstance(data, dict):
+                        print(f"データのキー: {list(data.keys())}")
+                        missing_keys = required_keys - set(data.keys())
+                        if missing_keys:
+                            print(f"不足しているキー: {missing_keys}")
+                        else:
+                            print("全ての必要なキーが揃っています")
+                        
+                        if required_keys.issubset(data.keys()):
+                            print(f"=== GAS転送開始 ===")
+                            gas_result = post_to_gas(data)
+                            print(f"✅ GAS に書き込みました: {gas_result}")
+                        else:
+                            print(f"❌ 必要なキーが不足しています")
                     else:
-                        print(f"必要なキーが不足しています。データ: {data}")
-                except json.JSONDecodeError:
-                    print("Dify response is not valid JSON")
+                        print(f"❌ データが辞書型ではありません: {type(data)}")
+                        
+                except json.JSONDecodeError as e:
+                    print(f"❌ JSON解析エラー: {e}")
+                    print(f"解析対象文字列: {repr(dify_response[:200])}")
                 except Exception as e:
-                    print(f"GAS連携処理中にエラー: {e}")
+                    print(f"❌ GAS連携処理中にエラー: {e}")
+                    import traceback
+                    traceback.print_exc()
             else:
-                print(f"Dify response is not string: {type(dify_response)}")
+                print(f"❌ Dify応答が文字列ではありません: {type(dify_response)}")
+                
+            print(f"=== 処理完了 ===")
+            
         except Exception as e:
-            print(f"処理中にエラーが発生しました: {e}")
+            print(f"❌ 処理中にエラーが発生しました: {e}")
             import traceback
             traceback.print_exc()
 
