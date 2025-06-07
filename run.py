@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, BackgroundTasks
+from fastapi import FastAPI, Request, BackgroundTasks,APIRouter
 import requests
 import json
 import os
@@ -12,10 +12,9 @@ from linebot.v3.webhooks import MessageEvent, TextMessageContent
 # 環境変数を読み込む
 load_dotenv()
 
-# デバッグ用: 環境変数の確認
-print(f"DIFY_API_KEY: {os.getenv('DIFY_API_KEY')}")
-print(f"DIFY_BASE_URL: {os.getenv('DIFY_BASE_URL')}")
-print(f"DIFY_USER: {os.getenv('DIFY_USER')}")
+
+router = APIRouter()
+LINE_USER_ID = os.getenv("LINE_FRIEND_USER_ID") 
 
 # LINE API クライアントとWebhookハンドラーを初期化
 configuration = Configuration(access_token=os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
@@ -213,3 +212,38 @@ async def handle_request(request: Request, background_tasks: BackgroundTasks):
 
     background_tasks.add_task(process_and_forward)
     return "ok"
+
+@router.post("/daily_notify")
+async def daily_notify(payload: dict):
+    """
+    GAS から { "deals":[ {...}, {...} ] } が POST される
+    ex) deals[0]["overview"] などを使ってまとめて送信
+    """
+    deals = payload.get("deals", [])
+    if not deals:
+        return {"status":"skip", "reason":"no deals"}
+
+    # テキスト整形
+    lines = ["【前日の新規案件】"]
+    for i, d in enumerate(deals, 1):
+        lines.append(f"{i}. {d.get('overview','')}")
+        lines.append(f"   場所: {d.get('location','')}")
+        lines.append(f"   金額: {d.get('amount','')}")
+        lines.append("")
+
+    text = "\n".join(lines).strip()
+
+    # LINE Push
+    try:
+        await line_bot_api.push_message(
+            PushMessageRequest(
+                to=LINE_USER_ID,
+                messages=[TextMessage(text=text)]
+            )
+        )
+        return {"status":"ok", "pushed": len(deals)}
+    except Exception as e:
+        return {"status":"error", "detail": str(e)}
+
+# FastAPI 本体へルータ登録
+app.include_router(router)
