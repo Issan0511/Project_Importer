@@ -170,8 +170,11 @@ async def handle_request(request: Request, background_tasks: BackgroundTasks):
                     print(f"JSON解析成功: {type(data)}", flush=True)
                     print(f"解析されたデータ: {json.dumps(data, ensure_ascii=False, indent=2)}", flush=True)
                     
-                    required_keys = {"overview", "location", "startDate", "vehicle", "headCount", "operation", "hours", "amount", "cases", "training"}
-                    
+                    required_keys = {
+                                        "overview", "location", "startDate", "vehicle", "headCount", "operation",
+                                        "hours", "amount", "cases", "training",  # 既存10キー
+                                        "prefecture", "code", "createdat", "rawtext"  # ★ 追加 4 キー
+                                 }                     
                     if isinstance(data, dict):
                         print(f"データのキー: {list(data.keys())}", flush=True)
                         missing_keys = required_keys - set(data.keys())
