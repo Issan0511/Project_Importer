@@ -71,6 +71,9 @@ async def handle_request(request: Request, background_tasks: BackgroundTasks):
                     if 'source' in event and 'userId' in event['source']:
                         user_id = event['source']['userId']
                         print(f"抽出されたuser_id: {user_id}", flush=True)
+                    if 'source' in event and 'groupId' in event['source']:
+                        group_id = event['source']['groupId']
+                        print(f"抽出されたgroup_id: {group_id}", flush=True)
             except Exception as e:
                 print(f"user_id抽出エラー: {e}", flush=True)
             
